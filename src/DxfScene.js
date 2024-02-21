@@ -1,6 +1,6 @@
 import { DynamicBuffer, NativeType } from "./DynamicBuffer"
 import { BatchingKey } from "./BatchingKey"
-import { Matrix3, Vector2 } from "three"
+import { Matrix3, Vector2, Vector3 } from "three"
 import { TextRenderer, ParseSpecialChars, HAlign, VAlign } from "./TextRenderer"
 import { RBTree } from "./RBTree"
 import { MTextFormatParser } from "./MTextFormatParser"
@@ -404,14 +404,14 @@ export class DxfScene {
         const a = 4 * Math.atan(bulge)
         const aAbs = Math.abs(a)
         if (aAbs < this.options.arcTessellationAngle) {
-            vertices.push(new Vector2(endVtx.x, endVtx.y))
+            vertices.push(new Vector3(endVtx.x, endVtx.y, endVtx.z))
             return
         }
         const ha = a / 2
         const sha = Math.sin(ha)
         const cha = Math.cos(ha)
-        const d = {x: endVtx.x - startVtx.x, y: endVtx.y - startVtx.y}
-        const dSq = d.x * d.x + d.y * d.y
+        const d = {x: endVtx.x - startVtx.x, y: endVtx.y - startVtx.y, z: endVtx.z - startVtx.z}
+        const dSq = d.x * d.x + d.y * d.y + d.z * d.z
         if (dSq < Number.MIN_VALUE * 2) {
             /* No vertex is pushed since end vertex is duplicate of start vertex. */
             return
@@ -422,7 +422,8 @@ export class DxfScene {
         d.y /= D
         const center = {
             x: (d.x * sha - d.y * cha) * R + startVtx.x,
-            y: (d.x * cha + d.y * sha) * R + startVtx.y
+            y: (d.x * cha + d.y * sha) * R + startVtx.y,
+            z: 0
         }
 
         let numSegments = Math.floor(aAbs / this.options.arcTessellationAngle)
@@ -439,12 +440,13 @@ export class DxfScene {
                 const a = startAngle + i * step
                 const v = new Vector2(
                     center.x + R * Math.cos(a),
-                    center.y + R * Math.sin(a)
+                    center.y + R * Math.sin(a),
+                    center.z
                 )
                 vertices.push(v)
             }
         }
-        vertices.push(new Vector2(endVtx.x, endVtx.y))
+        vertices.push(new Vector3(endVtx.x, endVtx.y, endVtx.z))
     }
 
     /** Generate vertices for arc segment.
@@ -678,29 +680,30 @@ export class DxfScene {
      */
     _CreatePointMarker(vertices, markType, position = null) {
         const _this = this
-        function PushVertex(offsetX, offsetY) {
+        function PushVertex(offsetX, offsetY, offsetZ) {
             vertices.push({
                 x: (position?.x ?? 0) + offsetX * _this.pdSize * 0.5,
-                y: (position?.y ?? 0) + offsetY * _this.pdSize * 0.5
+                y: (position?.y ?? 0) + offsetY * _this.pdSize * 0.5,
+                z: (position?.z ?? 0) + offsetZ * _this.pdSize * 0.5
             })
         }
 
         switch(markType) {
         case PdMode.PLUS:
-            PushVertex(0, 1.5)
-            PushVertex(0, -1.5)
-            PushVertex(-1.5, 0)
-            PushVertex(1.5, 0)
+            PushVertex(0, 1.5, 0)
+            PushVertex(0, -1.5, 0)
+            PushVertex(-1.5, 0, 0)
+            PushVertex(1.5, 0, 0)
             break
         case PdMode.CROSS:
-            PushVertex(-1, 1)
-            PushVertex(1, -1)
-            PushVertex(1, 1)
-            PushVertex(-1, -1)
+            PushVertex(-1, 1, 0)
+            PushVertex(1, -1, 0)
+            PushVertex(1, 1, 0)
+            PushVertex(-1, -1, 0)
             break
         case PdMode.TICK:
-            PushVertex(0, 1)
-            PushVertex(0, 0)
+            PushVertex(0, 1, 0)
+            PushVertex(0, 0, 0)
             break
         default:
             console.warn("Unsupported point display type: " + markType)
@@ -782,9 +785,9 @@ export class DxfScene {
             return area > Number.EPSILON
         }
 
-        const v0 = new Vector2(vertices[0].x, vertices[0].y)
-        const v1 = new Vector2(vertices[1].x, vertices[1].y)
-        const v2 = new Vector2(vertices[2].x, vertices[2].y)
+        const v0 = new Vector3(vertices[0].x, vertices[0].y, vertices[0].z)
+        const v1 = new Vector3(vertices[1].x, vertices[1].y, vertices[1].z)
+        const v2 = new Vector3(vertices[2].x, vertices[2].y, vertices[2].z)
         let v3 = null
 
         let hasFirstTriangle = IsValidTriangle(v0, v1, v2)
@@ -795,7 +798,7 @@ export class DxfScene {
              * for degeneration.
              */
 
-            v3 = new Vector2(vertices[3].x, vertices[3].y)
+            v3 = new Vector3(vertices[3].x, vertices[3].y, vertices[3].z)
             hasSecondTriangle = IsValidTriangle(v1, v3, v2)
             if (transform) {
                 v3.applyMatrix3(transform)
@@ -1078,14 +1081,17 @@ export class DxfScene {
 
                 let offsetX
                 let offsetY
+                let offsetZ
                 if (pattern.offsetInLineSpace) {
                     offsetX = line.offset.x
                     offsetY = line.offset.y
+                    offsetZ = line.offset.z
                 } else {
                     const sin = Math.sin(-(line.angle ?? 0))
                     const cos = Math.cos(-(line.angle ?? 0))
                     offsetX = line.offset.x * cos - line.offset.y * sin
                     offsetY = line.offset.x * sin + line.offset.y * cos
+                    offsetZ = 0
                 }
 
                 /* Normalize offset so that Y is always non-negative. Inverting offset vector
@@ -1251,7 +1257,7 @@ export class DxfScene {
                 vertices.push(points[0])
             } else {
                 const lastPt = vertices[vertices.length - 1]
-                if (lastPt.x != points[0].x || lastPt.y != points[0].y) {
+                if (lastPt.x != points[0].x || lastPt.y != points[0].y || lastPt.z != points[0].z) {
                     vertices.push(points[0])
                 }
             }
@@ -1270,13 +1276,13 @@ export class DxfScene {
                 for (let vtxIdx = 0; vtxIdx < loop.polyline.vertices.length; vtxIdx++) {
                     const vtx = loop.polyline.vertices[vtxIdx]
                     if ((vtx.bulge ?? 0) == 0) {
-                        vertices.push(new Vector2(vtx.x, vtx.y))
+                        vertices.push(new Vector3(vtx.x, vtx.y, vtx.z))
                     } else {
                         const prevVtx = loop.polyline.vertices[vtxIdx == 0 ?
                             loop.polyline.vertices.length - 1 : vtxIdx - 1]
                         if ((prevVtx.bulge ?? 0) == 0) {
                             /* Start vertex is not produced by _GenerateBulgeVertices(). */
-                            vertices.push(new Vector2(vtx.x, vtx.y))
+                            vertices.push(new Vector3(vtx.x, vtx.y, vtx.z))
                         }
                         const nextVtx = loop.polyline.vertices[
                             vtxIdx == loop.polyline.vertices.length - 1 ? 0 : vtxIdx + 1]
@@ -1289,8 +1295,8 @@ export class DxfScene {
                     switch (edge.type) {
                     case 1:
                         /* Line segment. */
-                        AddPoints(vertices, [new Vector2(edge.start.x, edge.start.y),
-                                             new Vector2(edge.end.x, edge.end.y)])
+                        AddPoints(vertices, [new Vector3(edge.start.x, edge.start.y, edge.start.z),
+                                             new Vector3(edge.end.x, edge.end.y, edge.end.z)])
                         break
                     case 2: {
                         /* Circular arc. */
@@ -1311,7 +1317,8 @@ export class DxfScene {
                         const center = edge.start
                         const majorAxisEndPoint = edge.end
                         const xR = Math.sqrt(majorAxisEndPoint.x * majorAxisEndPoint.x +
-                                             majorAxisEndPoint.y * majorAxisEndPoint.y)
+                                             majorAxisEndPoint.y * majorAxisEndPoint.y + 
+                                             majorAxisEndPoint.z * majorAxisEndPoint.z)
                         const axisRatio = edge.radius
                         const yR = xR * axisRatio
                         const rotation = Math.atan2(majorAxisEndPoint.y, majorAxisEndPoint.x)
@@ -1342,14 +1349,14 @@ export class DxfScene {
                     }
                     case 4:
                         /* Spline. */
-                        const controlPoints = edge.controlPoints.map(p => [p.x, p.y])
+                        const controlPoints = edge.controlPoints.map(p => [p.x, p.y, p.z])
                         const subdivisions = controlPoints.length * SPLINE_SUBDIVISION
                         const step = 1 / subdivisions
                         for (let i = 0; i <= subdivisions; i++) {
                             const pt = this._InterpolateSpline(i * step, edge.degreeOfSplineCurve,
                                                                controlPoints,
                                                                edge.knotValues)
-                            vertices.push(new Vector2(pt[0],pt[1]))
+                            vertices.push(new Vector3(pt[0],pt[1],pt[2]))
                         }
                         break;
                     default:
@@ -1358,14 +1365,14 @@ export class DxfScene {
                 }
             }
 
-            if (vertices.length > 2) {
+            if (vertices.length > 3) {
                 const first = vertices[0]
                 const last = vertices[vertices.length - 1]
-                if (last.x == first.x && last.y == first.y) {
+                if (last.x == first.x && last.y == first.y && last.z == first.z) {
                     vertices.length = vertices.length - 1
                 }
             }
-            if (vertices.length > 2) {
+            if (vertices.length > 3) {
                 result.push(vertices)
             }
         }
@@ -1453,12 +1460,12 @@ export class DxfScene {
 
         /* Update bounding box and origin with transformed block bounds corner points. */
         const bounds = block.bounds
-        this._UpdateBounds(new Vector2(bounds.minX, bounds.minY).applyMatrix3(transform))
-        this._UpdateBounds(new Vector2(bounds.maxX, bounds.maxY).applyMatrix3(transform))
-        this._UpdateBounds(new Vector2(bounds.minX, bounds.maxY).applyMatrix3(transform))
-        this._UpdateBounds(new Vector2(bounds.maxX, bounds.minY).applyMatrix3(transform))
+        this._UpdateBounds(new Vector3(bounds.minX, bounds.minY, bounds.minZ).applyMatrix3(transform))
+        this._UpdateBounds(new Vector3(bounds.maxX, bounds.maxY, bounds.maxZ).applyMatrix3(transform))
+        this._UpdateBounds(new Vector3(bounds.minX, bounds.maxY, bounds.maxZ).applyMatrix3(transform))
+        this._UpdateBounds(new Vector3(bounds.maxX, bounds.minY, bounds.minZ).applyMatrix3(transform))
 
-        transform.translate(-this.origin.x, -this.origin.y)
+        transform.translate(-this.origin.x, -this.origin.y, -this.origin.z)
         //XXX grid instancing not supported yet
         if (block.flatten) {
             for (const batch of block.batches) {
@@ -1556,7 +1563,7 @@ export class DxfScene {
             entityVertices = entity.vertices
             verticesCount = entity.vertices.length
         }
-        if (verticesCount < 2) {
+        if (verticesCount < 3) {
             return
         }
         entityVertices = this._MirrorEntityVertices(entity, entityVertices)
@@ -1675,7 +1682,7 @@ export class DxfScene {
                     faces.push(face)
                 }
             } else {
-                vertices.push(new Vector2(v.x, v.y))
+                vertices.push(new Vector3(v.x, v.y, v.z))
             }
         }
 
@@ -1754,14 +1761,14 @@ export class DxfScene {
             //XXX knots or fit points not supported yet
             return
         }
-        const controlPoints = entity.controlPoints.map(p => [p.x, p.y])
+        const controlPoints = entity.controlPoints.map(p => [p.x, p.y, p.z])
         const vertices = []
         const subdivisions = controlPoints.length * SPLINE_SUBDIVISION
         const step = 1 / subdivisions
         for (let i = 0; i <= subdivisions; i++) {
             const pt = this._InterpolateSpline(i * step, entity.degreeOfSplineCurve, controlPoints,
                                                entity.knotValues)
-            vertices.push({x: pt[0], y: pt[1]})
+            vertices.push({x: pt[0], y: pt[1], z: pt[2]})
         }
         //XXX extrusionDirection (normalVector) transform?
         yield new Entity({type: Entity.Type.POLYLINE, vertices, layer, color, lineType})
@@ -1905,7 +1912,7 @@ export class DxfScene {
          * polylines with just two points.
          */
         const verticesCount = entity.vertices.length
-        if (verticesCount <= 3) {
+        if (verticesCount <= 2) {
             const key = new BatchingKey(entity.layer, blockCtx?.name,
                                         BatchingKey.GeometryType.LINES, entity.color,
                                         entity.lineType)
@@ -2063,13 +2070,13 @@ export class DxfScene {
             return blockCtx.TransformVertex(v)
         }
         this._UpdateBounds(v)
-        return { x: v.x - this.origin.x, y: v.y - this.origin.y }
+        return { x: v.x - this.origin.x, y: v.y - this.origin.y, z: v.z - this.origin.z }
     }
 
     /** @param v {{x,y}} Vertex to extend bounding box with and set origin. */
     _UpdateBounds(v) {
         if (this.bounds === null) {
-            this.bounds = { minX: v.x, maxX: v.x, minY: v.y, maxY: v.y }
+            this.bounds = { minX: v.x, maxX: v.x, minY: v.y, maxY: v.y, minZ: v.z, maxZ: v.z }
         } else {
             if (v.x < this.bounds.minX) {
                 this.bounds.minX = v.x
@@ -2081,9 +2088,14 @@ export class DxfScene {
             } else if (v.y > this.bounds.maxY) {
                 this.bounds.maxY = v.y
             }
+            if (v.z < this.bounds.minZ) {
+                this.bounds.minZ = v.z
+            } else if (v.z > this.bounds.maxZ) {
+                this.bounds.maxZ = v.z
+            }
         }
         if (this.origin === null) {
-            this.origin = { x: v.x, y: v.y }
+            this.origin = { x: v.x, y: v.y, z: v.z }
         }
     }
 
@@ -2150,6 +2162,7 @@ class RenderBatch {
     PushVertex(v) {
         const idx = this.vertices.Push(v.x)
         this.vertices.Push(v.y)
+        this.vertices.Push(v.z)
         return idx
     }
 
@@ -2180,7 +2193,7 @@ class RenderBatch {
         let curChunk = null
         let curSpace = 0
         for (const chunk of this.chunks) {
-            const space = INDEXED_CHUNK_SIZE - chunk.vertices.GetSize() / 2
+            const space = INDEXED_CHUNK_SIZE - chunk.vertices.GetSize() / 3
             if (space < verticesCount) {
                 continue
             }
@@ -2213,9 +2226,9 @@ class RenderBatch {
             /* Merge chunks. */
             for (const chunk of batch.chunks) {
                 const verticesSize = chunk.vertices.size
-                const chunkWriter = this.PushChunk(verticesSize / 2)
-                for (let i = 0; i < verticesSize; i += 2) {
-                    const v = new Vector2(chunk.vertices.Get(i), chunk.vertices.Get(i + 1))
+                const chunkWriter = this.PushChunk(verticesSize / 3)
+                for (let i = 0; i < verticesSize; i += 3) {
+                    const v = new Vector3(chunk.vertices.Get(i), chunk.vertices.Get(i + 1), chunk.vertices.Get(i + 2))
                     if (transform) {
                         v.applyMatrix3(transform)
                     }
@@ -2229,8 +2242,8 @@ class RenderBatch {
             }
         } else {
             const n = batch.vertices.size
-            for (let i = 0; i < n; i += 2) {
-                const v = new Vector2(batch.vertices.Get(i), batch.vertices.Get(i + 1))
+            for (let i = 0; i < n; i += 3) {
+                const v = new Vector3(batch.vertices.Get(i), batch.vertices.Get(i + 1), batch.vertices.Get(i + 2))
                 if (transform) {
                     v.applyMatrix3(transform)
                 }
@@ -2381,7 +2394,7 @@ class Block {
 
     UpdateBounds(v) {
         if (this.bounds === null) {
-            this.bounds = { minX: v.x, maxX: v.x, minY: v.y, maxY: v.y }
+            this.bounds = { minX: v.x, maxX: v.x, minY: v.y, maxY: v.y, minZ: v.z, maxZ: v.z }
         } else {
             if (v.x < this.bounds.minX) {
                 this.bounds.minX = v.x
@@ -2392,6 +2405,11 @@ class Block {
                 this.bounds.minY = v.y
             } else if (v.y > this.bounds.maxY) {
                 this.bounds.maxY = v.y
+            }
+            if (v.z < this.bounds.minZ) {
+                this.bounds.minZ = v.z
+            } else if (v.z > this.bounds.maxZ) {
+                this.bounds.maxY = v.z
             }
         }
     }
@@ -2416,7 +2434,7 @@ class BlockContext {
      * @return {{x,y}}
      */
     TransformVertex(v) {
-        const result = new Vector2(v.x, v.y).applyMatrix3(this.transform)
+        const result = new Vector3(v.x, v.y, v.z).applyMatrix3(this.transform)
         if (this.type !== BlockContext.Type.DEFINITION &&
             this.type !== BlockContext.Type.NESTED_DEFINITION) {
 
@@ -2428,7 +2446,7 @@ class BlockContext {
              * vector for the first vertex.
              */
             this.block.offset = result
-            const v = new Vector2()
+            const v = new Vector3()
             this.block.UpdateBounds(v)
             return v
         }
@@ -2446,12 +2464,14 @@ class BlockContext {
         const mInsert = new Matrix3().translate(-this.origin.x, -this.origin.y)
         const yScale = entity.yScale || 1
         const xScale = entity.xScale || 1
+        const zScale = entity.zScale || 1
         const rotation = -(entity.rotation || 0) * Math.PI / 180
         let x = entity.position.x
         const y = entity.position.y
-        mInsert.scale(xScale, yScale)
+        const z = entity.position.z
+        mInsert.scale(xScale, yScale, zScale)
         mInsert.rotate(rotation)
-        mInsert.translate(x, y)
+        mInsert.translate(x, y, z)
         if (entity.extrusionDirection && entity.extrusionDirection.z < 0) {
             mInsert.scale(-1, 1)
         }
@@ -2490,9 +2510,9 @@ class IndexedChunk {
             initialCapacity = 16
         }
         /* Average two indices per vertex. */
-        this.indices = new DynamicBuffer(NativeType.UINT16, initialCapacity * 2)
+        this.indices = new DynamicBuffer(NativeType.UINT16, initialCapacity * 3)
         /* Two components per vertex. */
-        this.vertices = new DynamicBuffer(NativeType.FLOAT32, initialCapacity * 2)
+        this.vertices = new DynamicBuffer(NativeType.FLOAT32, initialCapacity * 3)
     }
 
     Serialize(buffers) {
@@ -2519,7 +2539,7 @@ class IndexedChunkWriter {
     constructor(chunk, verticesCount) {
         this.chunk = chunk
         this.verticesCount = verticesCount
-        this.verticesOffset = this.chunk.vertices.GetSize() / 2
+        this.verticesOffset = this.chunk.vertices.GetSize() / 3
         this.numVerticesPushed = 0
     }
 
@@ -2529,6 +2549,7 @@ class IndexedChunkWriter {
         }
         this.chunk.vertices.Push(v.x)
         this.chunk.vertices.Push(v.y)
+        this.chunk.vertices.Push(v.z)
         this.numVerticesPushed++
     }
 
@@ -2583,7 +2604,7 @@ export class Entity {
      */
     *_IterateLineChunks() {
         const verticesCount = this.vertices.length
-        if (verticesCount < 2) {
+        if (verticesCount < 3) {
             return
         }
         const _this = this
@@ -2609,7 +2630,7 @@ export class Entity {
             }
 
             let vertices, indices, chunkVerticesCount
-            if (count < 2) {
+            if (count < 3) {
                 /* Either last vertex or last shape-closing vertex, or both. */
                 if (count === 1 && this.shape) {
                     /* Both. */
@@ -2631,7 +2652,7 @@ export class Entity {
                     })()
                 }
                 indices = _IterateLineIndices(2, false)
-                chunkVerticesCount = 2
+                chunkVerticesCount = 3
             } else if (isLast && this.shape && chunkOffset > 0 && count < INDEXED_CHUNK_SIZE) {
                 /* Additional vertex to close the shape. */
                 vertices = (function*() {

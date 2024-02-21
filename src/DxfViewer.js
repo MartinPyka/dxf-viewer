@@ -48,7 +48,7 @@ export class DxfViewer {
         const renderer = this.renderer
         renderer.setPixelRatio(window.devicePixelRatio)
 
-        const camera = this.camera = new three.OrthographicCamera(-1, 1, 1, -1, 0.1, 2);
+        const camera = this.camera = new three.PerspectiveCamera( 45, 1950 / 1080, 1, 1000 ); // new three.OrthographicCamera(-1, 1, 1, -1, 0.1, 2);
         camera.position.z = 1
         camera.position.x = 0
         camera.position.y = 0
@@ -403,10 +403,11 @@ export class DxfViewer {
 
     _CreateControls() {
         const controls = this.controls = new OrbitControls(this.camera, this.canvas)
-        controls.enableRotate = false
+        controls.enableRotate = true
         controls.mouseButtons = {
             LEFT: three.MOUSE.PAN,
-            MIDDLE: three.MOUSE.DOLLY
+            MIDDLE: three.MOUSE.DOLLY,
+            RIGHT: three.MOUSE.ROTATE
         }
         controls.touches = {
             ONE: three.TOUCH.PAN,
